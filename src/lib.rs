@@ -1,53 +1,29 @@
-#![warn(clippy::pedantic)]
-
-use proc_macro::TokenStream as TokenStream1;
-use proc_macro2::TokenStream;
-
-use quote::ToTokens;
-
-use syn::Error;
-use syn::Item;
-use syn::ItemMod;
-
-fn check_for_extra_data_items(items: Vec<Item>) -> Option<Error> {
-    let mut invalid_data_items = items
-        .iter()
-        .filter(|i| matches!(i, Item::Struct(_) | Item::Enum(_) | Item::Union(_)))
-        .skip(1)
-        .map(|item| Error::new_spanned(item, "Only one data item allowed in actor declaration"));
-
-    let mut error = invalid_data_items.next();
-    for item in invalid_data_items {
-        if let Some(mut err) = error {
-            err.combine(item);
-            error = Some(err);
-        }
-    }
-    error
+use async_trait::async_trait;
+mod test;
+#[async_trait]
+trait RoleSender: Sized {
+    type Item;
+    type Error;
+    async fn send(&self, msg: impl Into<Self::Item> + Send) -> Result<(), Self::Error>;
 }
 
-fn actor_core(module: ItemMod) -> Result<Vec<Item>, syn::Error> {
-    let Some((_, items)) = module.content else { return Err(syn::Error::new_spanned(module, "actor declaration cannot be empty")); };
+mod tokio {
+    use super::async_trait;
+    use crate::RoleSender;
 
-    if let Some(value) = check_for_extra_data_items(items) {
-        return Err(value);
+    #[async_trait]
+    impl<T: Send> RoleSender for tokio::sync::mpsc::UnboundedSender<T> {
+        type Item = T;
+        type Error = tokio::sync::mpsc::error::SendError<T>;
+        async fn send(&self, msg: impl Into<T> + Send) -> Result<(), <Self as RoleSender>::Error> {
+            self.send(msg.into())
+        }
     }
-
-    Ok(vec![])
 }
 
-#[proc_macro_attribute]
-pub fn actor(_attr: TokenStream1, item: TokenStream1) -> TokenStream1 {
-    let module = syn::parse_macro_input!(item as ItemMod);
-
-    match actor_core(module) {
-        Ok(items) => {
-            let mut token_stream = TokenStream::new();
-            for item in items {
-                item.to_tokens(&mut token_stream);
-            }
-            token_stream.into()
-        }
-        Err(e) => e.into_compile_error().into(),
-    }
+#[async_trait]
+trait RoleInfo {
+    type Payload: Sized + Send;
+    type Sender: RoleSender<Item = Self::Payload>;
+    type Receiver: Sized;
 }

@@ -1,16 +1,19 @@
 [package]
 name = "troupe"
-version = "0.1.0"
 edition = "2021"
-authors = ["Ewan Mount <ejmount@users.noreply.github.com>"]
-
-[lib]
-proc-macro = true
+version = "0.1.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[workspace]
+
+[workspace.package]
+version = "0.1.0"
+authors = ["Ewan Mount <ejmount@users.noreply.github.com>"]
+description = "A short description of my package"
+
 [dependencies]
-proc-macro2 = "1.0.56"
-quote = "1.0.26"
-syn = { version = "2.0.15", features = ["full"] }
-trybuild = "1.0.80"
+async-trait = "0.1.68"
+tokio = { version = "1.27.0", features = ["time", "sync", "net", "io-util"] }
+
+troupe-macro = { path = "troupe-macro" }
