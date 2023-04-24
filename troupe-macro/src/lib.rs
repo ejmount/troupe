@@ -1,9 +1,13 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::trivially_copy_pass_by_ref)]
 
+#[macro_use]
 mod actor_decl;
+
+use actor_decl::Performance;
 use actor_decl::Role;
 
+use actor_decl::create_performance;
 use proc_macro::TokenStream as TokenStream1;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
@@ -12,6 +16,7 @@ use quote::ToTokens;
 
 use quote::format_ident;
 use syn::Error;
+use syn::Ident;
 use syn::Item;
 use syn::ItemEnum;
 use syn::ItemImpl;
@@ -19,68 +24,76 @@ use syn::ItemMod;
 use syn::ItemStruct;
 use syn::ItemUnion;
 
-macro_rules! make_filter {
-    ($pat:path) => {
-        |thing| if let $pat(a) = thing { Some(a) } else { None }
-    };
-}
+use crate::actor_decl::create_handling_block;
+use crate::actor_decl::create_spawner;
 
 fn merge_errors(mut e: Error, f: Error) -> Error {
     e.combine(f);
     e
 }
 
-fn make_role(role: &ItemImpl) -> Result<Role, Error> {
-    let Some((_, ref path, _)) = role.trait_ else { return Err(Error::new_spanned(role, "Must impl a role trait")) };
+fn create_role(role: ItemImpl) -> Result<Role, Error> {
+    let Some((_, path, _)) = role.trait_ else { return Err(Error::new_spanned(role, "Must impl a role trait")) };
 
-    Ok(Role::new(path.clone()))
+    Ok(Role::new(path))
 }
 
-fn get_data_item(items: &[Item]) -> Result<Item, Error> {
-    let mut data_items = items
-        .into_iter()
-        .filter(|i| matches!(i, Item::Struct(_) | Item::Enum(_) | Item::Union(_)));
+fn make_performed_role(imp: ItemImpl) -> Result<(Role, Performance), Error> {
+    let role = create_role(imp.clone())?;
 
-    let Some(first_data) = data_items.next() else { return Err(Error::new(Span::call_site(), "actor declaration must contain one struct, enum or union")); };
+    let performance = create_performance(imp)?;
+    Ok((role, performance))
+}
 
-    let invalid_items = data_items
-        .map(|item| Error::new_spanned(item, "Only one data item allowed in actor declaration"));
+fn get_data_item_name(items: &[Item]) -> Result<(&Item, &Ident), Error> {
+    use Item::*;
+    let mut data_items = items.iter().filter_map(|item| match item {
+        Struct(ItemStruct { ident, .. })
+        | Enum(ItemEnum { ident, .. })
+        | Union(ItemUnion { ident, .. }) => Some((item, ident)),
+        _ => None,
+    });
 
-    let error = invalid_items.reduce(merge_errors);
+    let Some(first_item) = data_items.next() else { return Err(Error::new(Span::call_site(), "actor declaration must contain one struct, enum or union")); };
 
-    match error {
-        Some(err) => Err(err),
-        None => Ok(first_data.clone()),
-    }
+    let invalid_item_errors = data_items.map(|(item, _)| {
+        Error::new_spanned(item, "Only one data item allowed in actor declaration")
+    });
+
+    bail_if_any!(invalid_item_errors);
+
+    Ok(first_item)
 }
 
 fn actor_core(module: ItemMod) -> Result<Vec<Item>, syn::Error> {
-    let Some((_, items)) = &module.content else { return Err(Error::new_spanned(module, "actor declaration cannot be empty")); };
+    let Some((_brace, items)) = module.content else { return Err(Error::new_spanned(module, "actor declaration cannot be empty")); };
 
-    let data_item = get_data_item(&items)?;
+    let (data_item, data_name) = get_data_item_name(&items)?;
+    let (data_item, data_name) = (data_item.clone(), data_name.clone());
 
-    let roles = items.iter().filter_map(make_filter!(Item::Impl));
+    let roles = items.into_iter().filter_map(make_filter!(Item::Impl));
 
-    let (roles, errors): (Vec<_>, _) = roles.map(make_role).partition(Result::is_ok);
+    let (performances, inherents): (Vec<_>, _) = roles.partition(|imp| imp.trait_.is_some());
 
-    let role_errors = errors
+    let inherents = inherents.into_iter().map(Item::Impl);
+
+    let (performed_roles, errors): (Vec<_>, _) = performances
         .into_iter()
-        .map(Result::unwrap_err)
-        .reduce(merge_errors);
-    if let Some(err) = role_errors {
-        return Err(err);
-    }
+        .map(make_performed_role)
+        .partition(Result::is_ok);
 
-    let data_name = match &data_item {
-        Item::Struct(ItemStruct { ident, .. })
-        | Item::Enum(ItemEnum { ident, .. })
-        | Item::Union(ItemUnion { ident, .. }) => ident,
-        _ => unreachable!(),
-    };
+    let role_errors = errors.into_iter().map(Result::unwrap_err);
+
+    bail_if_any!(role_errors);
 
     let actor_name = format_ident!("{data_name}Actor");
 
-    let roles: Vec<_> = roles.into_iter().map(Result::unwrap).collect();
+    let performed_roles: Vec<_> = performed_roles.into_iter().map(Result::unwrap).collect();
+
+    let roles: Vec<_> = performed_roles
+        .iter()
+        .map(|(role, _)| role.clone())
+        .collect();
 
     let actor_impls = actor_decl::create_actor_impls(&roles[..], &actor_name)
         .into_iter()
@@ -88,15 +101,23 @@ fn actor_core(module: ItemMod) -> Result<Vec<Item>, syn::Error> {
     let actor_type = actor_decl::create_actor_type(&roles[..], &actor_name);
     let trait_decl = roles.iter().flat_map(actor_decl::create_role);
 
-    let payloads = roles
+    let payloads = performed_roles
         .iter()
-        .map(actor_decl::create_payload)
-        .map(Item::Struct);
+        .map(|(a, p)| actor_decl::create_payload(a, p))
+        .map(Item::Enum);
+
+    let handling = Item::Impl(create_handling_block(data_name.clone(), &performed_roles));
+
+    let spawner = Item::Impl(create_spawner(data_name, actor_name, &roles));
 
     let mut output = vec![Item::Struct(actor_type)];
+    output.push(data_item);
+    output.extend(inherents);
     output.extend(actor_impls);
     output.extend(trait_decl);
     output.extend(payloads);
+    output.push(handling);
+    output.push(spawner);
     return Ok(output);
 }
 
