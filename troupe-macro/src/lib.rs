@@ -3,11 +3,12 @@
 
 #[macro_use]
 mod actor_decl;
+mod types;
 
-use actor_decl::Performance;
-use actor_decl::Role;
+use itertools::Itertools;
+use types::Performance;
+use types::Role;
 
-use actor_decl::create_performance;
 use proc_macro::TokenStream as TokenStream1;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
@@ -25,6 +26,7 @@ use syn::ItemStruct;
 use syn::ItemUnion;
 
 use crate::actor_decl::create_handling_block;
+use crate::actor_decl::create_performance;
 use crate::actor_decl::create_spawner;
 
 fn merge_errors(mut e: Error, f: Error) -> Error {
@@ -46,23 +48,26 @@ fn make_performed_role(imp: ItemImpl) -> Result<(Role, Performance), Error> {
 }
 
 fn get_data_item_name(items: &[Item]) -> Result<(&Item, &Ident), Error> {
-    use Item::*;
-    let mut data_items = items.iter().filter_map(|item| match item {
-        Struct(ItemStruct { ident, .. })
-        | Enum(ItemEnum { ident, .. })
-        | Union(ItemUnion { ident, .. }) => Some((item, ident)),
+    let data_items = items.iter().filter_map(|item| match item {
+        Item::Struct(ItemStruct { ident, .. })
+        | Item::Enum(ItemEnum { ident, .. })
+        | Item::Union(ItemUnion { ident, .. }) => Some((item, ident)),
         _ => None,
     });
 
-    let Some(first_item) = data_items.next() else { return Err(Error::new(Span::call_site(), "actor declaration must contain one struct, enum or union")); };
-
-    let invalid_item_errors = data_items.map(|(item, _)| {
-        Error::new_spanned(item, "Only one data item allowed in actor declaration")
-    });
-
-    bail_if_any!(invalid_item_errors);
-
-    Ok(first_item)
+    match data_items.at_most_one() {
+        Ok(Some(first_item)) => Ok(first_item),
+        Ok(None) => Err(Error::new(
+            Span::call_site(),
+            "actor declaration must contain one struct, enum or union",
+        )),
+        Err(items) => Err(items
+            .map(|(item, _)| {
+                Error::new_spanned(item, "Only one data item allowed in actor declaration")
+            })
+            .reduce(merge_errors)
+            .unwrap()),
+    }
 }
 
 fn actor_core(module: ItemMod) -> Result<Vec<Item>, syn::Error> {
@@ -71,29 +76,25 @@ fn actor_core(module: ItemMod) -> Result<Vec<Item>, syn::Error> {
     let (data_item, data_name) = get_data_item_name(&items)?;
     let (data_item, data_name) = (data_item.clone(), data_name.clone());
 
-    let roles = items.into_iter().filter_map(make_filter!(Item::Impl));
+    let roles = filter_unwrap!(items, Item::Impl);
 
     let (performances, inherents): (Vec<_>, _) = roles.partition(|imp| imp.trait_.is_some());
 
     let inherents = inherents.into_iter().map(Item::Impl);
 
-    let (performed_roles, errors): (Vec<_>, _) = performances
+    let (performed_roles, role_errors): (Vec<_>, Vec<_>) = performances
         .into_iter()
         .map(make_performed_role)
-        .partition(Result::is_ok);
-
-    let role_errors = errors.into_iter().map(Result::unwrap_err);
+        .partition_result();
 
     bail_if_any!(role_errors);
 
     let actor_name = format_ident!("{data_name}Actor");
 
-    let performed_roles: Vec<_> = performed_roles.into_iter().map(Result::unwrap).collect();
-
     let roles: Vec<_> = performed_roles
         .iter()
         .map(|(role, _)| role.clone())
-        .collect();
+        .collect_vec();
 
     let actor_impls = actor_decl::create_actor_impls(&roles[..], &actor_name)
         .into_iter()
@@ -106,9 +107,9 @@ fn actor_core(module: ItemMod) -> Result<Vec<Item>, syn::Error> {
         .map(|(a, p)| actor_decl::create_payload(a, p))
         .map(Item::Enum);
 
-    let handling = Item::Impl(create_handling_block(data_name.clone(), &performed_roles));
+    let handling = Item::Impl(create_handling_block(&data_name, &performed_roles));
 
-    let spawner = Item::Impl(create_spawner(data_name, actor_name, &roles));
+    let spawner = Item::Impl(create_spawner(&data_name, &actor_name, &roles));
 
     let mut output = vec![Item::Struct(actor_type)];
     output.push(data_item);
@@ -118,7 +119,7 @@ fn actor_core(module: ItemMod) -> Result<Vec<Item>, syn::Error> {
     output.extend(payloads);
     output.push(handling);
     output.push(spawner);
-    return Ok(output);
+    Ok(output)
 }
 
 #[proc_macro_attribute]
