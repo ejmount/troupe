@@ -10,13 +10,16 @@ trait RoleSender: Sized {
 mod tokio {
     use super::async_trait;
     use crate::RoleSender;
+    use tokio::sync::mpsc::error::SendError;
+    use tokio::sync::mpsc::UnboundedSender;
 
     #[async_trait]
-    impl<T: Send> RoleSender for tokio::sync::mpsc::UnboundedSender<T> {
+    impl<T: Send> RoleSender for UnboundedSender<T> {
         type Item = T;
-        type Error = tokio::sync::mpsc::error::SendError<T>;
-        async fn send(&self, msg: impl Into<T> + Send) -> Result<(), <Self as RoleSender>::Error> {
-            self.send(msg.into())
+        type Error = SendError<T>;
+        async fn send(&self, msg: impl Into<T> + Send) -> Result<(), SendError<T>> {
+            let val = msg.into();
+            self.send(val)
         }
     }
 }
