@@ -8,10 +8,11 @@ trait RoleSender: Sized {
 }
 
 mod tokio {
-    use super::async_trait;
-    use crate::RoleSender;
     use tokio::sync::mpsc::error::SendError;
     use tokio::sync::mpsc::UnboundedSender;
+
+    use super::async_trait;
+    use crate::RoleSender;
 
     #[async_trait]
     impl<T: Send> RoleSender for UnboundedSender<T> {
