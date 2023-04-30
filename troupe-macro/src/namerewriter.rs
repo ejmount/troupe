@@ -1,13 +1,13 @@
 use quote::format_ident;
 use syn::fold::Fold;
-use syn::{parse_quote, Block, Pat, Receiver, ReturnType};
+use syn::{parse_quote, Block, Pat, Path, Receiver, ReturnType};
 
 pub struct NameRewriter {
 	index:     usize,
-	role_name: syn::Path,
+	role_name: Path,
 }
 impl NameRewriter {
-	pub fn new(role_name: syn::Path) -> NameRewriter {
+	pub fn new(role_name: Path) -> NameRewriter {
 		NameRewriter {
 			index: 0,
 			role_name,
@@ -27,8 +27,8 @@ impl Fold for NameRewriter {
 	}
 
 	fn fold_return_type(&mut self, _: ReturnType) -> ReturnType {
-		let payload = &self.role_name;
-		parse_quote! { -> Result<(), <<<Self as #payload>::Info as troupe::RoleInfo>::Sender as troupe::RoleSender>::Error> }
+		let role_name = &self.role_name;
+		parse_quote! { -> Result<(), <<<Self as #role_name>::Info as troupe::RoleInfo>::Sender as troupe::RoleSender>::Error> }
 	}
 
 	fn fold_block(&mut self, i: Block) -> Block {
