@@ -3,20 +3,11 @@ use itertools::Itertools;
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, ToTokens};
 use syn::fold::Fold;
-use syn::{parse_quote, FnArg, ItemEnum, ItemTrait, Signature, Variant};
+use syn::{parse_quote, FnArg, ItemEnum, ItemTrait, PatType, Signature, Variant};
 
 use crate::infotype::InfoType;
 use crate::namerewriter::NameRewriter;
 use crate::performance::PerformanceDeclaration;
-
-macro_rules! filter_unwrap {
-	($list:expr, $pat:path) => {
-		$list
-			.iter()
-			.cloned()
-			.filter_map(|item| if let $pat(a) = item { Some(a) } else { None })
-	};
-}
 
 pub struct Role {
 	info:    InfoType,
@@ -55,14 +46,19 @@ impl ToTokens for Role {
 	}
 }
 
-fn make_variant(sig: &Signature) -> Variant {
-	let variant_name = format_ident!("{}", sig.ident.to_string().to_case(Case::UpperCamel));
-
-	let types = filter_unwrap!(&sig.inputs, FnArg::Typed).map(|pat| *pat.ty);
-	parse_quote! { #variant_name ((#(#types),*)) }
-}
-
 fn create_payload_from_impl(payload_name: &Ident, methods: &[&Signature]) -> ItemEnum {
+	fn make_variant(sig: &Signature) -> Variant {
+		let variant_name = format_ident!("{}", sig.ident.to_string().to_case(Case::UpperCamel));
+
+		let types = sig.inputs.iter().filter_map(|item| {
+			if let FnArg::Typed(PatType { ty, .. }) = item {
+				Some(ty)
+			} else {
+				None
+			}
+		});
+		parse_quote! { #variant_name ((#(#types),*)) }
+	}
 	let variants = methods.iter().copied().map(make_variant);
 
 	parse_quote! {
