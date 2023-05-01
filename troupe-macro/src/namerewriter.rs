@@ -28,7 +28,7 @@ impl Fold for NameRewriter {
 
 	fn fold_return_type(&mut self, _: ReturnType) -> ReturnType {
 		let role_name = &self.role_name;
-		parse_quote! { -> Result<(), <<<Self as #role_name>::Info as troupe::RoleInfo>::Sender as troupe::RoleSender>::Error> }
+		parse_quote! {-> Result <(), <<dyn #role_name as troupe::Role>::Sender as troupe::RoleSender>:: Error >}
 	}
 
 	fn fold_block(&mut self, i: Block) -> Block {

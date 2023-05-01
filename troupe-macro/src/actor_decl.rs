@@ -196,10 +196,10 @@ fn make_field_from_name(performance: &PerformanceDeclaration) -> Field {
 	let role_name = performance.role_name();
 
 	Field::parse_named
-		.parse2(quote! {#field_name : <<Self as #role_name>::Info as troupe::RoleInfo>::Sender})
-		.unwrap_or_else(|_| {
+		.parse2(quote! {#field_name : <dyn #role_name as troupe::Role>::Sender})
+		.unwrap_or_else(|err| {
 			panic!(
-				"Parse failure trying to create actor field - this is a bug, please file an issue"
+				"Parse failure trying to create actor field - this is a bug, please file an issue: {err}"
 			)
 		})
 }

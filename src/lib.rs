@@ -25,9 +25,8 @@ mod tokio {
     }
 }
 
-#[async_trait]
-trait RoleInfo {
-    type Payload: Sized + Send;
-    type Sender: RoleSender<Item = Self::Payload>;
-    type Receiver: Sized;
+pub trait Role {
+	type Payload: Sized + Send;
+	type Sender: RoleSender<Item = Self::Payload>;
+	type Receiver: Sized;
 }

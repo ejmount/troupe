@@ -73,10 +73,6 @@ impl PerformanceDeclaration {
 	pub fn field_name(&self) -> Ident {
 		format_ident!("{}", self.leaf_ident().to_case(Case::Snake))
 	}
-
-	pub fn info_name(&self) -> Ident {
-		format_ident!("{}Info", self.leaf_ident().to_case(Case::UpperCamel))
-	}
 }
 
 pub struct Performance {
@@ -110,12 +106,10 @@ fn make_actor_performance(actor_name: &Ident, perf: &PerformanceDeclaration) -> 
 	let methods = perf.handlers.iter().map(sending_method_maker(perf));
 
 	let trait_name = perf.role_name();
-	let info_name = perf.info_name();
 
 	let output = parse_quote! {
 		#[::async_trait::async_trait]
 		impl #trait_name for #actor_name {
-			type Info = #info_name;
 			#(#methods)*
 		}
 	};

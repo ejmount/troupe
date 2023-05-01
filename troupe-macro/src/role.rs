@@ -27,7 +27,6 @@ impl Role {
 
 		let trt = parse_quote! {
 			trait #trait_name {
-				type Info: troupe::RoleInfo;
 				#(#signatures;)*
 			}
 		};
