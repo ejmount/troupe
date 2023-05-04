@@ -3,8 +3,8 @@ use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, ToTokens};
 use syn::parse::Parser;
 use syn::{
-	parse_quote, Attribute, Error, Expr, Field, Ident, Item, ItemEnum, ItemImpl, ItemStruct,
-	ItemUnion, Stmt,
+	parse_quote, Attribute, Error, Field, Ident, Item, ItemEnum, ItemImpl, ItemStruct, ItemUnion,
+	Stmt,
 };
 
 use crate::performance::PerformanceDeclaration;
@@ -135,9 +135,9 @@ fn make_spawner(
 
 	let queue_constructions =
 		itertools::izip!(performances, &input_field_names, &output_field_names).map(
-			|(_role, inn, out)| -> Stmt {
-				let constructor: Expr = parse_quote! { ::tokio::sync::mpsc::unbounded_channel() };
-				parse_quote! { let (#inn, mut #out) = #constructor; }
+			|(role, inn, out)| -> Stmt {
+				let role_name = role.role_name();
+				parse_quote! { let (#inn, mut #out) = <dyn #role_name as troupe::Role>::Channel::new_default(); }
 			},
 		);
 
@@ -160,22 +160,23 @@ fn make_spawner(
 
 	parse_quote! {
 		impl #data_name {
-			pub fn start(mut state: #data_name) -> (::std::sync::Arc<#actor_name>, ::tokio::task::JoinHandle<()>) {
+			pub fn start(mut state: #data_name) -> troupe::ActorSpawn<#actor_name> {
+				use troupe::Channel;
 				#(#queue_constructions)*
 				let actor = #actor_name {
 					#(#actor_fields),*
 				};
-				let actor_handle = ::std::sync::Arc::new(actor);
+				let actor = ::std::sync::Arc::new(actor);
 				let event_loop = async move {
-					loop {
+					loop { let val =
 						::tokio::select! {
 							#(#select_branches),*
-							else => break
-						}
+						};
+						val.map_err(|_| ())?;
 					}
 				};
 				let join_handle = ::tokio::task::spawn(event_loop);
-				(actor_handle, join_handle)
+				troupe::ActorSpawn {actor, join_handle}
 			}
 		}
 	}
@@ -196,7 +197,9 @@ fn make_field_from_name(performance: &PerformanceDeclaration) -> Field {
 	let role_name = performance.role_name();
 
 	Field::parse_named
-		.parse2(quote! {#field_name : <dyn #role_name as troupe::Role>::Sender})
+		.parse2(
+			quote! {#field_name : <<dyn #role_name as troupe::Role>::Channel as troupe::Channel>::Sender},
+		)
 		.unwrap_or_else(|err| {
 			panic!(
 				"Parse failure trying to create actor field - this is a bug, please file an issue: {err}"

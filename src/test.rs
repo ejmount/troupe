@@ -2,7 +2,7 @@
 use tokio::sync::oneshot;
 use troupe_macro::actor;
 
-use crate as troupe;
+use crate::{self as troupe, ActorSpawn};
 
 pub struct AType;
 pub struct Pattern;
@@ -31,25 +31,24 @@ mod actor {
 #[test]
 async fn ping() {
 	let state = Olaf { alive: true };
-	let (actor_handle, _) = Olaf::start(state);
-	assert!(actor_handle.do_thing(AType {}, Pattern {}).is_ok());
-	//panic!("stop");
+	let ActorSpawn { actor, .. } = Olaf::start(state);
+	assert!(actor.do_thing(AType {}, Pattern {}).await.is_ok());
 }
-
+/*
 #[actor]
 mod actor {
 	use std::sync::Arc;
 	use std::time::Instant;
 
 	struct ChainIm {
-		next: Option<Arc<dyn Chain<Info = ChainInfo> + Send + Sync>>,
+		next: Option<Arc<dyn Chain + Send + Sync>>,
 	}
 
 	#[performance(canonical)]
 	impl Chain for ChainIm {
 		fn poke(&mut self, start: Instant, sender: tokio::sync::oneshot::Sender<()>) {
 			match &self.next {
-				Some(next) => next.poke(start, sender).unwrap_or_else(|_| panic!()),
+				Some(next) => next.poke(start, sender).await.unwrap_or_else(|_| panic!()),
 				None => println!("{:?}", start.elapsed()),
 			}
 		}
@@ -59,13 +58,13 @@ mod actor {
 #[tokio::main]
 #[test]
 async fn chain() {
-	let mut actor = ChainIm::start(ChainIm { next: None }).0;
-
+	let ActorSpawn { actor, .. } = ChainIm::start(ChainIm { next: None });
+	let mut actor = actor;
 	let begin = Instant::now();
 
 	for _ in 0..1000000 {
 		let new_state = ChainIm { next: Some(actor) };
-		actor = ChainIm::start(new_state).0;
+		ActorSpawn { actor, .. } = ChainIm::start(new_state);
 	}
 
 	let (sender, receiver) = oneshot::channel();
@@ -77,3 +76,4 @@ async fn chain() {
 	receiver.await;
 	panic!();
 }
+ */

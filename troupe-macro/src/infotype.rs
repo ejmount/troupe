@@ -17,8 +17,7 @@ impl InfoType {
 			impl_block: parse_quote! {
 				impl troupe::Role for dyn #role_name {
 					type Payload = #payload_name;
-					type Sender = ::tokio::sync::mpsc::UnboundedSender<#payload_name>;
-					type Receiver = ::tokio::sync::mpsc::UnboundedReceiver<#payload_name>;
+					type Channel = troupe::tokio::TokioUnbounded<Self::Payload>;
 				}
 			},
 		}
