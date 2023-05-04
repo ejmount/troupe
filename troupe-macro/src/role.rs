@@ -6,7 +6,7 @@ use syn::fold::Fold;
 use syn::{parse_quote, FnArg, ItemEnum, ItemTrait, PatType, Signature, Variant};
 
 use crate::infotype::InfoType;
-use crate::namerewriter::NameRewriter;
+use crate::namerewriter::MethodRewriter;
 use crate::performance::PerformanceDeclaration;
 
 pub struct Role {
@@ -31,7 +31,12 @@ impl Role {
 			}
 		};
 
-		let trt = NameRewriter::new(perf.role_name()).fold_item_trait(trt);
+		let trt = MethodRewriter::new(perf.role_name()).fold_item_trait(trt);
+
+		let trt = parse_quote! {
+			#[::async_trait::async_trait]
+			#trt
+		};
 
 		Role { info, payload, trt }
 	}

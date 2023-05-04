@@ -6,7 +6,7 @@ use syn::fold::Fold;
 use syn::{parse_quote, Arm, FnArg, Ident, ImplItem, ImplItemFn, ItemImpl, Path};
 
 use crate::attributes::PerformanceAttribute;
-use crate::namerewriter::NameRewriter;
+use crate::namerewriter::MethodRewriter;
 
 macro_rules! filter_unwrap {
 	($list:expr, $pat:path) => {
@@ -114,7 +114,7 @@ fn make_actor_performance(actor_name: &Ident, perf: &PerformanceDeclaration) -> 
 		}
 	};
 
-	NameRewriter::new(perf.role_name()).fold_item_impl(output)
+	MethodRewriter::new(perf.role_name()).fold_item_impl(output)
 }
 
 fn sending_method_maker(perf: &PerformanceDeclaration) -> impl Fn(&ImplItemFn) -> ImplItemFn {
@@ -126,9 +126,11 @@ fn sending_method_maker(perf: &PerformanceDeclaration) -> impl Fn(&ImplItemFn) -
 		let sig = &fun.sig;
 
 		parse_quote! {
-			#sig {
+			async #sig {
+				use troupe::{RoleReceiver, RoleSender};
 				let msg = (#(#params),*);
-				self.#field_name.send(#payload_name::#variant_name(msg))
+				let field: &dyn troupe::RoleSender::<#payload_name, Error = _> = &self.#field_name;
+				field.send(#payload_name::#variant_name(msg)).await
 			}
 		}
 	}
@@ -151,10 +153,11 @@ fn make_data_performance(data_name: &Ident, perf: &PerformanceDeclaration) -> It
 
 	parse_quote! {
 		impl #data_name {
-			fn #method_name(&mut self, msg: #payload_name) {
-				match msg {
+			fn #method_name(&mut self, msg: #payload_name) -> Result<(), ()> {
+				let val = match msg {
 					#(#arms),*
-				}
+				};
+				Ok(val)
 			}
 		}
 	}

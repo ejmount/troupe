@@ -153,7 +153,7 @@ fn make_spawner(
 		|(role, output)| -> TokenStream {
 			let fn_name = role.method_name();
 			quote! { Some(msg) = #output.recv() => {
-				state.#fn_name(msg);
+				state.#fn_name(msg)
 			} }
 		},
 	);
