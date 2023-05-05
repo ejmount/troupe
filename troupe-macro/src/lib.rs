@@ -6,6 +6,7 @@ mod infotype;
 mod namerewriter;
 mod performance;
 mod role;
+mod spawning_function;
 
 use actor_decl::ActorDecl;
 use performance::Performance;
