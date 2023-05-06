@@ -4,22 +4,20 @@ use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, ToTokens};
 use syn::fold::Fold;
 use syn::parse::Parser;
-use syn::{FnArg, ItemEnum, ItemTrait, PatType, Result, Signature, Variant};
+use syn::{FnArg, ItemEnum, ItemImpl, ItemTrait, PatType, Result, Signature, Variant};
 
-use crate::infotype::InfoType;
 use crate::macros::{fallible_quote, map_or_bail};
 use crate::namerewriter::MethodRewriter;
 use crate::performance::PerformanceDeclaration;
 
 pub struct Role {
-	info:    InfoType,
-	payload: ItemEnum,
-	trt:     ItemTrait,
+	trait_def:  ItemTrait,
+	trait_impl: ItemImpl,
+	payload:    ItemEnum,
 }
 
 impl Role {
 	pub fn new(perf: &PerformanceDeclaration) -> Result<Role> {
-		let info = InfoType::new(perf)?;
 		let trait_name = perf.role_name();
 
 		let signatures = perf.handlers().iter().map(|i| &i.sig).collect_vec();
@@ -35,20 +33,37 @@ impl Role {
 
 		let trt = MethodRewriter::new(perf.role_name()).fold_item_trait(trt);
 
-		let trt = fallible_quote! {
+		let trait_def = fallible_quote! {
 			#[::async_trait::async_trait]
 			#trt
 		}?;
 
-		Ok(Role { info, payload, trt })
+		let trait_impl = {
+			let perf = perf;
+			let payload_name = perf.payload_name();
+			let role_name = perf.role_name();
+
+			fallible_quote! {
+				impl troupe::Role for dyn #role_name {
+					type Payload = #payload_name;
+					type Channel = troupe::tokio::TokioUnbounded<Self::Payload>;
+				}
+			}
+		}?;
+
+		Ok(Role {
+			payload,
+			trait_def,
+			trait_impl,
+		})
 	}
 }
 
 impl ToTokens for Role {
 	fn to_tokens(&self, tokens: &mut TokenStream) {
-		self.info.to_tokens(tokens);
+		self.trait_impl.to_tokens(tokens);
 		self.payload.to_tokens(tokens);
-		self.trt.to_tokens(tokens);
+		self.trait_def.to_tokens(tokens);
 	}
 }
 

@@ -2,7 +2,6 @@
 
 mod actor_decl;
 mod attributes;
-mod infotype;
 mod macros;
 mod namerewriter;
 mod performance;
