@@ -3,19 +3,12 @@ use itertools::Itertools;
 use proc_macro2::TokenStream;
 use quote::{format_ident, ToTokens};
 use syn::fold::Fold;
-use syn::{parse_quote, Arm, FnArg, Ident, ImplItem, ImplItemFn, ItemImpl, Path};
+use syn::parse::Parser;
+use syn::{Arm, FnArg, Ident, ImplItem, ImplItemFn, ItemImpl, Path, Result, Signature};
 
 use crate::attributes::PerformanceAttribute;
+use crate::macros::{fallible_quote, filter_unwrap, map_or_bail};
 use crate::namerewriter::MethodRewriter;
-
-macro_rules! filter_unwrap {
-	($list:expr, $pat:path) => {
-		$list
-			.iter()
-			.cloned()
-			.filter_map(|item| if let $pat(a) = item { Some(a) } else { None })
-	};
-}
 
 pub struct PerformanceDeclaration {
 	role_name: Path,
@@ -85,13 +78,13 @@ impl Performance {
 		actor_name: &Ident,
 		data_name: &Ident,
 		perf: &PerformanceDeclaration,
-	) -> Performance {
-		let data_impl = make_data_performance(data_name, perf);
-		let actor_impl = make_actor_performance(actor_name, perf);
-		Performance {
+	) -> Result<Performance> {
+		let data_impl = make_data_performance(data_name, perf)?;
+		let actor_impl = make_actor_performance(actor_name, perf)?;
+		Ok(Performance {
 			data_impl,
 			actor_impl,
-		}
+		})
 	}
 }
 
@@ -102,58 +95,66 @@ impl ToTokens for Performance {
 	}
 }
 
-fn make_actor_performance(actor_name: &Ident, perf: &PerformanceDeclaration) -> ItemImpl {
-	let methods = perf.handlers.iter().map(sending_method_maker(perf));
+fn make_actor_performance(actor_name: &Ident, perf: &PerformanceDeclaration) -> Result<ItemImpl> {
+	let methods = map_or_bail!(&perf.handlers, |fun| sending_method(perf, &fun));
 
 	let trait_name = perf.role_name();
 
-	let output = parse_quote! {
+	let output = fallible_quote! {
 		#[::async_trait::async_trait]
 		impl #trait_name for #actor_name {
 			#(#methods)*
 		}
-	};
+	}?;
 
-	MethodRewriter::new(perf.role_name()).fold_item_impl(output)
+	Ok(MethodRewriter::new(perf.role_name()).fold_item_impl(output))
 }
 
-fn sending_method_maker(perf: &PerformanceDeclaration) -> impl Fn(&ImplItemFn) -> ImplItemFn {
+fn sending_method(perf: &PerformanceDeclaration, fun: &ImplItemFn) -> Result<ImplItemFn> {
 	let payload_name = perf.payload_name();
 	let field_name = perf.field_name();
-	move |fun| {
-		let params = (0..fun.sig.inputs.len() - 1).map(|n| format_ident!("_{n}"));
-		let variant_name = make_variant_name(fun);
-		let sig = &fun.sig;
 
-		parse_quote! {
-			async #sig {
-				use troupe::{RoleReceiver, RoleSender};
-				let msg = (#(#params),*);
-				let field: &dyn troupe::RoleSender::<#payload_name, Error = _> = &self.#field_name;
-				field.send(#payload_name::#variant_name(msg)).await
-			}
+	let params = (0..fun.sig.inputs.len() - 1).map(|n| format_ident!("_{n}"));
+	let variant_name = make_variant_name(fun);
+	let sig = Signature {
+		asyncness: None,
+		..fun.sig.clone()
+	};
+
+	fallible_quote! {
+		async #sig {
+			use troupe::{RoleReceiver, RoleSender};
+			let msg = (#(#params),*);
+			let field: &dyn troupe::RoleSender::<#payload_name, Error = _> = &self.#field_name;
+			field.send(#payload_name::#variant_name(msg)).await
 		}
 	}
 }
 
-fn make_data_performance(data_name: &Ident, perf: &PerformanceDeclaration) -> ItemImpl {
+fn make_data_performance(data_name: &Ident, perf: &PerformanceDeclaration) -> Result<ItemImpl> {
 	let payload_name = perf.payload_name();
 	let method_name = perf.method_name();
 
-	let arms = perf.handlers.iter().map(|fun| -> Arm {
-		let patterns = filter_unwrap!(fun.sig.inputs, FnArg::Typed).map(|p| *p.pat);
+	let arms: Result<Vec<_>> = perf
+		.handlers
+		.iter()
+		.map(|fun| -> Result<Arm> {
+			let patterns = filter_unwrap!(fun.sig.inputs, FnArg::Typed).map(|p| *p.pat);
 
-		let variant_name = make_variant_name(fun);
+			let variant_name = make_variant_name(fun);
 
-		let body = &fun.block;
-		parse_quote! {
-			#payload_name::#variant_name ((#(#patterns),*)) => #body,
-		}
-	});
+			let body = &fun.block;
+			fallible_quote! {
+				#payload_name::#variant_name ((#(#patterns),*)) => #body,
+			}
+		})
+		.collect();
 
-	parse_quote! {
+	let arms = arms?;
+
+	fallible_quote! {
 		impl #data_name {
-			fn #method_name(&mut self, msg: #payload_name) -> Result<(), ()> {
+			async fn #method_name(&mut self, msg: #payload_name) -> Result<(), ()> {
 				let val = match msg {
 					#(#arms),*
 				};
