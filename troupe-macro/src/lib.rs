@@ -3,6 +3,7 @@
 mod actor_decl;
 mod attributes;
 mod infotype;
+mod macros;
 mod namerewriter;
 mod performance;
 mod role;
@@ -28,5 +29,8 @@ fn actor_core_new(module: ItemMod) -> Result<ActorDecl, Error> {
 pub fn actor(_attr: TokenStream1, item: TokenStream1) -> TokenStream1 {
 	let module = syn::parse_macro_input!(item as ItemMod);
 
-	actor_core_new(module).unwrap().to_token_stream().into()
+	match actor_core_new(module) {
+		Ok(actor_decl) => actor_decl.to_token_stream().into(),
+		Err(e) => e.into_compile_error().into_token_stream().into(),
+	}
 }

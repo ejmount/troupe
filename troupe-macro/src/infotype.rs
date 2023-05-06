@@ -1,7 +1,9 @@
 use proc_macro2::TokenStream;
 use quote::ToTokens;
-use syn::{parse_quote, ItemImpl};
+use syn::parse::Parser;
+use syn::{ItemImpl, Result};
 
+use crate::macros::fallible_quote;
 use crate::performance::PerformanceDeclaration;
 
 pub struct InfoType {
@@ -9,18 +11,18 @@ pub struct InfoType {
 }
 
 impl InfoType {
-	pub fn new(perf: &PerformanceDeclaration) -> InfoType {
+	pub fn new(perf: &PerformanceDeclaration) -> Result<InfoType> {
 		let payload_name = perf.payload_name();
 		let role_name = perf.role_name();
 
-		InfoType {
-			impl_block: parse_quote! {
+		Ok(InfoType {
+			impl_block: fallible_quote! {
 				impl troupe::Role for dyn #role_name {
 					type Payload = #payload_name;
 					type Channel = troupe::tokio::TokioUnbounded<Self::Payload>;
 				}
-			},
-		}
+			}?,
+		})
 	}
 }
 

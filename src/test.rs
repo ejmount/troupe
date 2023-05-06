@@ -34,7 +34,7 @@ async fn ping() {
 	let ActorSpawn { actor, .. } = Olaf::start(state);
 	assert!(actor.do_thing(AType {}, Pattern {}).await.is_ok());
 }
-/*
+
 #[actor]
 mod actor {
 	use std::sync::Arc;
@@ -46,7 +46,7 @@ mod actor {
 
 	#[performance(canonical)]
 	impl Chain for ChainIm {
-		fn poke(&mut self, start: Instant, sender: tokio::sync::oneshot::Sender<()>) {
+		async fn poke(&mut self, start: Instant, sender: tokio::sync::oneshot::Sender<()>) {
 			match &self.next {
 				Some(next) => next.poke(start, sender).await.unwrap_or_else(|_| panic!()),
 				None => println!("{:?}", start.elapsed()),
@@ -76,4 +76,3 @@ async fn chain() {
 	receiver.await;
 	panic!();
 }
- */
