@@ -18,20 +18,18 @@ pub struct Role {
 
 impl Role {
 	pub fn new(perf: &PerformanceDeclaration) -> Result<Role> {
-		let trait_name = perf.role_name();
+		let role_name = perf.role_name();
 
-		let signatures = perf.handlers().iter().map(|i| &i.sig).collect_vec();
-		let payload = create_payload_from_impl(&perf.payload_name(), &signatures)?;
-
-		let signatures = signatures.into_iter();
+		let signatures = perf.handlers().into_iter().map(|i| &i.sig).collect_vec();
+		let payload = create_payload_from_impl(&perf.payload_name(), signatures.clone())?;
 
 		let trt = fallible_quote! {
-			trait #trait_name {
+			trait #role_name {
 				#(#signatures;)*
 			}
 		}?;
 
-		let trt = MethodRewriter::new(perf.role_name()).fold_item_trait(trt);
+		let trt = MethodRewriter::new(role_name).fold_item_trait(trt);
 
 		let trait_def = fallible_quote! {
 			#[::async_trait::async_trait]
@@ -67,14 +65,14 @@ impl ToTokens for Role {
 	}
 }
 
-fn create_payload_from_impl(payload_name: &Ident, methods: &[&Signature]) -> Result<ItemEnum> {
+fn create_payload_from_impl(payload_name: &Ident, methods: Vec<&Signature>) -> Result<ItemEnum> {
 	fn make_variant(sig: &Signature) -> Result<Variant> {
 		let variant_name = format_ident!("{}", sig.ident.to_string().to_case(Case::UpperCamel));
 
 		let types = filter_unwrap!(&sig.inputs, FnArg::Typed).map(|p| &*p.ty);
 		fallible_quote! { #variant_name ((#(#types),*)) }
 	}
-	let variants = map_or_bail!(methods.iter().cloned(), make_variant);
+	let variants = map_or_bail!(methods, make_variant);
 
 	fallible_quote! {
 		pub enum #payload_name { #(#variants),* }
