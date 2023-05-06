@@ -1,8 +1,7 @@
 macro_rules! filter_unwrap {
 	($list:expr, $pat:path) => {
 		$list
-			.iter()
-			.cloned()
+			.into_iter()
 			.filter_map(|item| if let $pat(a) = item { Some(a) } else { None })
 	};
 }

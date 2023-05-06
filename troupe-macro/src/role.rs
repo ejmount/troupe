@@ -4,9 +4,9 @@ use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, ToTokens};
 use syn::fold::Fold;
 use syn::parse::Parser;
-use syn::{FnArg, ItemEnum, ItemImpl, ItemTrait, PatType, Result, Signature, Variant};
+use syn::{FnArg, ItemEnum, ItemImpl, ItemTrait, Result, Signature, Variant};
 
-use crate::macros::{fallible_quote, map_or_bail};
+use crate::macros::{fallible_quote, filter_unwrap, map_or_bail};
 use crate::namerewriter::MethodRewriter;
 use crate::performance::PerformanceDeclaration;
 
@@ -71,13 +71,7 @@ fn create_payload_from_impl(payload_name: &Ident, methods: &[&Signature]) -> Res
 	fn make_variant(sig: &Signature) -> Result<Variant> {
 		let variant_name = format_ident!("{}", sig.ident.to_string().to_case(Case::UpperCamel));
 
-		let types = sig.inputs.iter().filter_map(|item| {
-			if let FnArg::Typed(PatType { ty, .. }) = item {
-				Some(ty)
-			} else {
-				None
-			}
-		});
+		let types = filter_unwrap!(&sig.inputs, FnArg::Typed).map(|p| &*p.ty);
 		fallible_quote! { #variant_name ((#(#types),*)) }
 	}
 	let variants = map_or_bail!(methods.iter().cloned(), make_variant);

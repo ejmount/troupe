@@ -23,7 +23,7 @@ impl PerformanceDeclaration {
 		attribute: PerformanceAttribute,
 	) -> PerformanceDeclaration {
 		assert!(!role_name.segments.is_empty());
-		let handlers = filter_unwrap! {&imp.items, ImplItem::Fn}.collect_vec();
+		let handlers = filter_unwrap! {imp.items.clone(), ImplItem::Fn}.collect_vec();
 
 		PerformanceDeclaration {
 			role_name: role_name.clone(),
@@ -139,7 +139,7 @@ fn make_data_performance(data_name: &Ident, perf: &PerformanceDeclaration) -> Re
 		.handlers
 		.iter()
 		.map(|fun| -> Result<Arm> {
-			let patterns = filter_unwrap!(fun.sig.inputs, FnArg::Typed).map(|p| *p.pat);
+			let patterns = filter_unwrap!(fun.sig.inputs.clone(), FnArg::Typed).map(|p| *p.pat);
 
 			let variant_name = make_variant_name(fun);
 
